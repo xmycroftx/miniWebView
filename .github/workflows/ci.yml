@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Old-style csproj (ToolsVersion 15.0, TargetFrameworkVersion v4.7.2) with
+      # packages.config, so this needs full MSBuild and nuget.exe -- `dotnet
+      # build` cannot handle it. Costura.Fody weaves WebView2 into the single
+      # output exe at build time, which is why the artifact is one file.
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore
+        run: nuget restore FloatCore3.sln
+
+      - name: Build (Release)
+        run: msbuild FloatCore3.sln -p:Configuration=Release -p:Platform="Any CPU" -m
+
+      - name: Verify the exe was produced
+        shell: pwsh
+        run: |
+          $exe = "FloatCore3/bin/Release/FloatCore3.exe"
+          if (-not (Test-Path $exe)) { throw "build produced no exe at $exe" }
+          $f = Get-Item $exe
+          "built: {0}  {1:N0} bytes" -f $f.Name, $f.Length
+          # Costura should have woven WebView2 in; a bare exe means the weave
+          # silently did not run.
+          if ($f.Length -lt 500KB) { throw "exe is $($f.Length) bytes - Costura weave likely did not run" }
+
+      - name: Smoke - the URL argument is actually parsed
+        shell: pwsh
+        run: |
+          # Cannot launch the GUI on a runner, but we can assert the entry point
+          # takes args at all, which is the bug this repo just had.
+          $src = Get-Content FloatCore3/Program.cs -Raw
+          if ($src -notmatch 'static\s+void\s+Main\s*\(\s*string\s*\[\s*\]\s*args\s*\)') {
+            throw "Main() does not accept string[] args - it cannot receive a URL"
+          }
+          if ($src -notmatch 'UriSchemeHttps') {
+            throw "StartupUri does not appear to validate schemes"
+          }
+          "entry point accepts args and validates schemes"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FloatCore3-win-x86
+          path: FloatCore3/bin/Release/FloatCore3.exe
+          if-no-files-found: error

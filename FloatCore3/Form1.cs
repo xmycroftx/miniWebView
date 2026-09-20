@@ -84,9 +84,18 @@ namespace FloatCore3
             }
             base.WndProc(ref m);
         }
-        public Form1()
+        public Form1() : this(null)
+        {
+        }
+
+        public Form1(Uri startupUri)
         {
             InitializeComponent();
+
+            // The designer sets a default Source; override it when we were
+            // launched with a URL (i.e. as the system browser). WebView2 defers
+            // the navigation until CoreWebView2 is ready, so this is safe here.
+            if (startupUri != null) { this.webView21.Source = startupUri; }
              
 
         }
@@ -119,6 +128,7 @@ namespace FloatCore3
             {
                 this.textBox1.Visible = true;
                 this.maxButton.Visible = true;
+                this.minButton.Visible = true;
                 this.closeButton.Visible = true;
                 this.titleButton.Visible = true;
             }
@@ -144,6 +154,7 @@ namespace FloatCore3
             {
                 this.textBox1.Visible = false;
                 this.maxButton.Visible = false;
+                this.minButton.Visible = false;
                 this.closeButton.Visible = false;
                 this.titleButton.Visible = false;
             }
