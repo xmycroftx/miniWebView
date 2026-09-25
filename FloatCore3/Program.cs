@@ -22,10 +22,8 @@ namespace FloatCore3
 
 
         }
-        static public void StartNewForm()
-        {
-            return;
-        }
+
 
     }
 }
+

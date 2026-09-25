@@ -1,0 +1,21 @@
+# build outputs
+[Bb]in/
+[Oo]bj/
+*.user
+
+# vm harness working dir (multi-GB media + machine-specific scripts)
+.vm/
+verify-out/
+
+# scratch
+q_tmp*.ps1
+*.log
+
+# local run wrappers (host-specific)
+RUN-AFTER-REBOOT.cmd
+TAIL-VERIFY.cmd
+
+# media/installer artifacts
+*.iso
+*.wim
+*.vhdx

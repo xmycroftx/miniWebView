@@ -35,6 +35,8 @@ namespace FloatCore3
             this.components = new System.ComponentModel.Container();
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
+            this.titleBarContextMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.alwaysOnTopToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.textBox2 = new System.Windows.Forms.TextBox();
             this.webView21 = new Microsoft.Web.WebView2.WinForms.WebView2();
             this.textBox1 = new System.Windows.Forms.TextBox();
@@ -72,6 +74,7 @@ namespace FloatCore3
             this.tableLayoutPanel1.TabIndex = 2;
             this.tableLayoutPanel1.DoubleClick += new System.EventHandler(this.maxButton_Click);
             this.tableLayoutPanel1.MouseDown += new System.Windows.Forms.MouseEventHandler(this.tableLayoutPanel1_MouseDown);
+            this.tableLayoutPanel1.MouseUp += new System.Windows.Forms.MouseEventHandler(this.TopBar_MouseUp);
             // 
             // textBox2
             // 
@@ -133,6 +136,7 @@ namespace FloatCore3
             this.closeButton.TextAlign = System.Drawing.ContentAlignment.TopCenter;
             this.closeButton.UseVisualStyleBackColor = false;
             this.closeButton.Click += new System.EventHandler(this.closeButton_Click);
+            this.closeButton.MouseUp += new System.Windows.Forms.MouseEventHandler(this.TopBar_MouseUp);
             // 
             // imageList2
             // 
@@ -175,6 +179,7 @@ namespace FloatCore3
             this.maxButton.TextAlign = System.Drawing.ContentAlignment.TopLeft;
             this.maxButton.UseVisualStyleBackColor = false;
             this.maxButton.Click += new System.EventHandler(this.maxButton_Click);
+            this.maxButton.MouseUp += new System.Windows.Forms.MouseEventHandler(this.TopBar_MouseUp);
             // 
             // minButton
             // 
@@ -193,6 +198,7 @@ namespace FloatCore3
             this.minButton.UseVisualStyleBackColor = false;
             this.minButton.Visible = false;
             this.minButton.Click += new System.EventHandler(this.minButton_Click);
+            this.minButton.MouseUp += new System.Windows.Forms.MouseEventHandler(this.TopBar_MouseUp);
             // 
             // titleButton
             // 
@@ -205,6 +211,7 @@ namespace FloatCore3
             this.titleButton.Size = new System.Drawing.Size(28, 26);
             this.titleButton.TabIndex = 5;
             this.titleButton.UseVisualStyleBackColor = true;
+            this.titleButton.MouseUp += new System.Windows.Forms.MouseEventHandler(this.TopBar_MouseUp);
             // 
             // imageList3
             // 
@@ -218,6 +225,22 @@ namespace FloatCore3
             this.imageList3.Images.SetKeyName(5, "closenob.png");
             this.imageList3.Images.SetKeyName(6, "icon.png");
             // 
+            // titleBarContextMenu
+            // 
+            this.titleBarContextMenu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.alwaysOnTopToolStripMenuItem});
+            this.titleBarContextMenu.Name = "titleBarContextMenu";
+            this.titleBarContextMenu.ShowImageMargin = false;
+            this.titleBarContextMenu.Size = new System.Drawing.Size(150, 26);
+            // 
+            // alwaysOnTopToolStripMenuItem
+            // 
+            this.alwaysOnTopToolStripMenuItem.CheckOnClick = true;
+            this.alwaysOnTopToolStripMenuItem.Name = "alwaysOnTopToolStripMenuItem";
+            this.alwaysOnTopToolStripMenuItem.Size = new System.Drawing.Size(149, 22);
+            this.alwaysOnTopToolStripMenuItem.Text = "Always on Top";
+            this.alwaysOnTopToolStripMenuItem.CheckedChanged += new System.EventHandler(this.alwaysOnTopToolStripMenuItem_CheckedChanged);
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -230,14 +253,15 @@ namespace FloatCore3
             this.Controls.Add(this.tableLayoutPanel1);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "Form1";
-            this.Opacity = 0.8D;
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
+            this.Opacity = 1D;
             this.Padding = new System.Windows.Forms.Padding(3);
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.TopMost = true;
+            this.TopMost = false;
             this.Activated += new System.EventHandler(this.webView21_MouseOver);
             this.Deactivate += new System.EventHandler(this.webView21_MouseLeave);
-            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Form1_FormClosing);
             this.Load += new System.EventHandler(this.Form1_Load);
+            this.Resize += new System.EventHandler(this.Form1_Resize);
             this.KeyDown += new System.Windows.Forms.KeyEventHandler(this.Form1_KeyDown);
             this.tableLayoutPanel1.ResumeLayout(false);
             this.tableLayoutPanel1.PerformLayout();
@@ -259,7 +283,13 @@ namespace FloatCore3
         private System.Windows.Forms.ImageList imageList2;
         private System.Windows.Forms.Button titleButton;
         private System.Windows.Forms.ImageList imageList3;
+        private System.Windows.Forms.ContextMenuStrip titleBarContextMenu;
+        private System.Windows.Forms.ToolStripMenuItem alwaysOnTopToolStripMenuItem;
 
     }
 }
+
+
+
+
 
