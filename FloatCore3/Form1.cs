@@ -38,6 +38,11 @@ namespace FloatCore3
 
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_NEWWINDOW)
+            {
+                TrySpawnInstance();
+                return;
+            }
             if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
             {
                 if (WindowState == FormWindowState.Maximized)
