@@ -1,4 +1,4 @@
-﻿using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Core;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -33,6 +33,7 @@ namespace FloatCore3
             DwmSetWindowAttribute(Handle, 33, ref pref, 4);
             int black = 0x000000;  // black window border
             DwmSetWindowAttribute(Handle, 34, ref black, 4);
+            RegisterHotKey(Handle, HOTKEY_NEWWINDOW, MOD_SHIFT | MOD_WIN | MOD_NOREPEAT, (uint)'N');
         }
 
         protected override void WndProc(ref Message m)
@@ -145,84 +146,23 @@ namespace FloatCore3
         {
             InitializeComponent();
             textBox1.Enter += textBox1_Enter;
-            if (_main == null)
-            {
-                _main = this;
-                InstallKeyboardHook();
-            }
         }
 
-        // --- win+shift+n -> new window, via a low-level keyboard hook ---
-        private static Form1 _main;
-        private static IntPtr _hook;
-        private const int WH_KEYBOARD_LL = 13;
-        private const int WM_KEYDOWN = 0x0100;
-        private const int WM_KEYUP = 0x0101;
-        private const int WM_SYSKEYDOWN = 0x0104;
-        private const int WM_SYSKEYUP = 0x0105;
-
-        private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct KBDLLHOOKSTRUCT
-        {
-            public uint vkCode;
-            public uint scanCode;
-            public uint flags;
-            public uint time;
-            public System.UIntPtr dwExtraInfo;
-        }
-
+        // --- win+shift+n global hotkey -> spawn a new process instance ---
+        private const int WM_HOTKEY = 0x0312;
+        private const int HOTKEY_NEWWINDOW = 0x0901;
+        private const uint MOD_SHIFT = 0x0004;
+        private const uint MOD_WIN = 0x0008;
+        private const uint MOD_NOREPEAT = 0x4000;
         [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern IntPtr SetWindowsHookEx(int idHook, HookProc lpfn, IntPtr hMod, uint dwThreadId);
+        private static extern bool RegisterHotKey(System.IntPtr hWnd, int id, uint fsModifiers, uint vk);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
-        private static extern IntPtr GetModuleHandle(string lpModuleName);
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern short GetAsyncKeyState(int vKey);
+        private static extern bool UnregisterHotKey(System.IntPtr hWnd, int id);
 
-        private void InstallKeyboardHook()
+        protected override void OnHandleDestroyed(EventArgs e)
         {
-            _hook = SetWindowsHookEx(WH_KEYBOARD_LL, HookCallback, GetModuleHandle(System.Reflection.Assembly.GetExecutingAssembly().Location), 0);
-        }
-
-        protected override void OnFormClosed(FormClosedEventArgs e)
-        {
-            if (_main == this && _hook != IntPtr.Zero)
-            {
-                UnhookWindowsHookEx(_hook);
-                _hook = IntPtr.Zero;
-                _main = null;
-            }
-            base.OnFormClosed(e);
-        }
-
-        private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            if (nCode >= 0)
-            {
-                int msg = wParam.ToInt32();
-                bool keyDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
-                var kb = (KBDLLHOOKSTRUCT)System.Runtime.InteropServices.Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
-                bool win = (GetAsyncKeyState(0x5B) & 0x8000) != 0 || (GetAsyncKeyState(0x5C) & 0x8000) != 0;
-                bool shift = (GetAsyncKeyState(0x10) & 0x8000) != 0;
-
-                // swallow only the N key (down + up) so the os never sees win+shift+n;
-                // modifier releases pass through so win/shift don't stay stuck down
-                if (kb.vkCode == 0x4E && win && shift)
-                {
-                    if (keyDown)
-                    {
-                        var main = _main;
-                        main?.BeginInvoke(new Action(TrySpawnInstance));
-                    }
-                    return (System.IntPtr)1;
-                }
-            }
-            return CallNextHookEx(_hook, nCode, wParam, lParam);
+            UnregisterHotKey(Handle, HOTKEY_NEWWINDOW);
+            base.OnHandleDestroyed(e);
         }
 
         // spawn a new executable instance; a named mutex keeps the racing
@@ -243,13 +183,6 @@ namespace FloatCore3
                 MessageBox.Show("Failed to spawn a new window: " + ex.Message);
             }
         }
-
-        internal static void NewWindow()
-        {
-            var f = new Form1();
-            f.Show();
-        }
-
 
         // "Always on Top" = pure behavior toggle (z-order + focus chrome);
         // the borderless skin is permanent.
@@ -428,9 +361,30 @@ namespace FloatCore3
             e.Handled = true;
         }
 
-        private void webView21_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
+        private int _webviewInitRetries;
+        private bool _customizeDone;
+
+        private async void webView21_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
         {
-            if (this.webView21.CoreWebView2 != null) { Form1_CustomizeMenu(); }
+            // concurrent env creation (multiple instances racing the shared
+            // browser process) can fail transiently - retry with backoff
+            if (!e.IsSuccess)
+            {
+                while (_webviewInitRetries < 3)
+                {
+                    _webviewInitRetries++;
+                    await Task.Delay(1500 * _webviewInitRetries);
+                    try
+                    {
+                        await webView21.EnsureCoreWebView2Async();
+                        if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
+                        return;
+                    }
+                    catch { continue; }
+                }
+                return;
+            }
+            if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
         }
 
 
@@ -584,4 +538,5 @@ namespace FloatCore3
         }
     }
 }
+
 
