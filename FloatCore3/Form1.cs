@@ -40,6 +40,12 @@ namespace FloatCore3
         {
             if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_NEWWINDOW)
             {
+                // the os consumes the modifier releases with the chord - re-release
+                // them so win/shift don't stay stuck down for other apps
+                keybd_event(0x5B, 0, KEYEVENTF_KEYUP, System.UIntPtr.Zero);   // lwin up
+                keybd_event(0x5C, 0, KEYEVENTF_KEYUP, System.UIntPtr.Zero);   // rwin up
+                keybd_event(0xA0, 0, KEYEVENTF_KEYUP, System.UIntPtr.Zero);   // lshift up
+                keybd_event(0xA1, 0, KEYEVENTF_KEYUP, System.UIntPtr.Zero);   // rshift up
                 TrySpawnInstance();
                 return;
             }
@@ -163,6 +169,9 @@ namespace FloatCore3
         private static extern bool RegisterHotKey(System.IntPtr hWnd, int id, uint fsModifiers, uint vk);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(System.IntPtr hWnd, int id);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern void keybd_event(byte vk, byte scan, uint dwFlags, System.UIntPtr dwExtraInfo);
+        private const uint KEYEVENTF_KEYUP = 0x0002;
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
@@ -320,7 +329,7 @@ namespace FloatCore3
         {
             this.Text = "miniWebView";
             this.BackColor = Color.FromArgb(0, 0, 0);
-            SetAlwaysOnTop(false);   // start as a normal window
+            SetAlwaysOnTop(false);
         }
         private void Form1_CustomizeMenu() { 
         this.webView21.CoreWebView2.ContextMenuRequested += delegate (object sender,CoreWebView2ContextMenuRequestedEventArgs args)
@@ -371,6 +380,14 @@ namespace FloatCore3
 
         private async void webView21_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
         {
+            // target=_blank links and window.open redirect in place
+            // (chrome-style: no new window, no unmanaged popup webview)
+            this.webView21.CoreWebView2.NewWindowRequested += (s, ev) =>
+            {
+                ev.Handled = true;
+                webView21.Source = new Uri(ev.Uri);
+            };
+
             // concurrent env creation (multiple instances racing the shared
             // browser process) can fail transiently - retry with backoff
             if (!e.IsSuccess)
