@@ -156,6 +156,9 @@ namespace FloatCore3
         public Form1()
         {
             InitializeComponent();
+
+            // fullscreen stays inside the window: tiling keeps working and the
+            // page's fullscreen element is constrained to the window bounds
             textBox1.Enter += textBox1_Enter;
         }
 
@@ -452,6 +455,15 @@ namespace FloatCore3
             this.webView21.CoreWebView2.ContainsFullScreenElementChanged += delegate (object sender, object args)
             {
                 if (this.WindowState == FormWindowState.Minimized) { return; }
+
+                // the winforms control auto-maximizes the host window when the
+                // page goes fullscreen - counteract so fullscreen stays inside
+                // the window and tiling keeps working
+                if (webView21.CoreWebView2.ContainsFullScreenElement && WindowState == FormWindowState.Maximized)
+                {
+                    WindowState = FormWindowState.Normal;
+                }
+
                 UpdateTopMostForFullScreen();
             };
     }
