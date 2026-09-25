@@ -1,4 +1,4 @@
-using Microsoft.Web.WebView2.Core;
+﻿using Microsoft.Web.WebView2.Core;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -159,6 +159,18 @@ namespace FloatCore3
             textBox1.Enter += textBox1_Enter;
         }
 
+        public Form1(string initialUrl, bool popup, CoreWebView2Environment env) : this()
+        {
+            _initialUrl = initialUrl;
+            _isPopup = popup;
+            _sharedEnvironment = env;
+        }
+
+        public Form1(string initialUrl) : this()
+        {
+            _initialUrl = initialUrl;
+        }
+
         // --- win+shift+n global hotkey -> spawn a new process instance ---
         private const int WM_HOTKEY = 0x0312;
         private const int HOTKEY_NEWWINDOW = 0x0901;
@@ -201,6 +213,46 @@ namespace FloatCore3
         // "Always on Top" = pure behavior toggle (z-order + focus chrome);
         // the borderless skin is permanent.
         private bool _wmResyncDone;
+        private string _initialUrl;
+        private bool _isPopup;
+        private CoreWebView2Environment _sharedEnvironment;
+
+        // one explicit environment for the whole process: every webview (main,
+        // popups, standbys) shares this browser process and its profile store
+        private static CoreWebView2Environment _sharedEnv;
+        private static CoreWebView2Environment GetSharedEnvironment()
+        {
+            if (_sharedEnv == null)
+            {
+                var udf = System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(Application.ExecutablePath),
+                    "FloatCore3.exe.WebView2");
+                _sharedEnv = Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, udf, null).GetAwaiter().GetResult();
+            }
+            return _sharedEnv;
+        }
+
+        // pre-initialized hidden webview so oidc/print popups get real popup
+        // semantics inside a window we own (window.opener, postMessage, close)
+        private Form1 _standbyPopup;
+        private bool _standbyReady;
+        private bool _standbyCreating;
+
+        private void EnsureStandbyPopup()
+        {
+            if (_standbyPopup != null || _standbyCreating) { return; }
+            if (webView21.CoreWebView2 == null) { return; }
+            _standbyCreating = true;
+            var env = GetSharedEnvironment();
+            var popup = new Form1(null, true, env);
+            _standbyPopup = popup;
+            popup.FormClosed += (s, ev) => { if (_standbyPopup == popup) { _standbyPopup = null; } };
+            popup.webView21.EnsureCoreWebView2Async(env).ContinueWith(t =>
+            {
+                _standbyCreating = false;
+                _standbyReady = true;
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
 
         protected override void OnShown(EventArgs e)
         {
@@ -329,9 +381,23 @@ namespace FloatCore3
         {
             this.Text = "miniWebView";
             this.BackColor = Color.FromArgb(0, 0, 0);
-            SetAlwaysOnTop(false);
+            SetAlwaysOnTop(_isPopup);   // popups float above their opener
+            if (_sharedEnvironment != null)
+            {
+                webView21.EnsureCoreWebView2Async(GetSharedEnvironment());
+            }
+
+            if (_isPopup)
+            {
+                this.Size = new Size(1000, 700);
+            }
+
+            if (_initialUrl != null)
+            {
+                try { webView21.Source = new Uri(_initialUrl); } catch { }
+            }
         }
-        private void Form1_CustomizeMenu() { 
+        private void Form1_CustomizeMenu() {
         this.webView21.CoreWebView2.ContextMenuRequested += delegate (object sender,CoreWebView2ContextMenuRequestedEventArgs args)
             {
                 IList<CoreWebView2ContextMenuItem> menuList = args.MenuItems;
@@ -342,7 +408,7 @@ namespace FloatCore3
         newItem.CustomItemSelected += delegate (object send, Object ex)
                 {
                     string pageUri = args.ContextMenuTarget.PageUri;
-                    
+
                     System.Threading.SynchronizationContext.Current.Post((_) =>
                     {
                         TrySpawnInstance();
@@ -352,10 +418,37 @@ namespace FloatCore3
                 };
                 menuList.Insert(menuList.Count, newItem);
             };
-            // a page (e.g. a video) going fullscreen must keep floating above other windows:
-            // stay topmost while fullscreen, then return to the title-bar toggle's choice.
-            // WebView2 reports a bogus fullscreen transition when the window is minimized,
-            // so ignore events while minimized and re-sync when the window is restored.
+
+            // site-driven popups (oidc login, print, etc) render in our own
+            // managed standby window - window.opener and postMessage keep working
+            this.webView21.CoreWebView2.NewWindowRequested += (s, ev) =>
+            {
+                ev.Handled = true;
+                if (ev.WindowFeatures.HasSize && _standbyReady)
+                {
+                    var standby = _standbyPopup;
+                    _standbyPopup = null;
+                    _standbyReady = false;
+                    ev.NewWindow = standby.webView21.CoreWebView2;
+                    standby.webView21.Source = new Uri(ev.Uri);
+                    standby.Show();
+                    EnsureStandbyPopup();
+                }
+                else
+                {
+                    // plain links: redirect in place
+                    webView21.Source = new Uri(ev.Uri);
+                }
+            };
+
+            // popup pages close themselves when the flow completes
+            this.webView21.CoreWebView2.WindowCloseRequested += (s, ev) =>
+            {
+                Close();
+            };
+
+            // concurrent env creation (multiple instances racing the shared
+            // browser process) can fail transiently - retry with backoff
             this.webView21.CoreWebView2.ContainsFullScreenElementChanged += delegate (object sender, object args)
             {
                 if (this.WindowState == FormWindowState.Minimized) { return; }
@@ -560,5 +653,6 @@ namespace FloatCore3
         }
     }
 }
+
 
 

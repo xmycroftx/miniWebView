@@ -1,15 +1,29 @@
 # miniWebView
 
-MiniWebView is a minimalistic web browser that uses the WebView2 library.  
+MiniWebView is a minimalistic frameless browser built on WebView2 — a window that tiles like a native tile in GlazeWM/komorebi/FancyZones, with an optional always-on-top floating mode.
 
-To keep the interface clean there's a menubar, and a urlbar and that's it.  
+## The window
 
-The urlbar hides itself when you tab away (in floating mode).  The app runs in two modes, switched by the "Always on Top" toggle:
+The chrome is stripped at the Win32 level (`WM_NCCALCSIZE` + DWM): square corners, black border, custom black X/min/max buttons. The window keeps its real styles underneath, so native tiling, Win+arrow snapping, the Snap Layouts flyout (maximize-button hover), and taskbar-respecting maximize all work.
 
-- **Window mode (default):** a normal resizable window with a native title bar, snap/Win+arrow keys, taskbar presence.  Right-click the title bar and pick **Always on Top** (system menu) to switch.
-- **Floating mode:** the original always-on-top widget - borderless, floats above everything, urlbar and chrome hide when you click away (80% opacity).  Right-click the title bar strip and untick **Always on Top** (context menu) to switch back.
+## Always on Top
 
-Fullscreen video stays inside the window boundary; while anything is fullscreen the window floats above other apps regardless of mode.  In floating mode there's some transparency. (80%)
+Right-click the title bar strip and tick **Always on Top**: the window floats above everything, and the url bar + chrome hide when it loses focus (80% opacity). Untick to return to a normal opaque tile.
+
+## URL bar
+
+- Full text editing: arrows, Home/End, Delete, Ctrl+A/C/V
+- Selects all on focus — type to replace, arrows to edit
+- `https://` is prepended automatically when no scheme is typed; explicit `http://` and other schemes are respected
+- Links that open new windows redirect in place
+
+## Win+Shift+N
+
+Spawns a new independent browser window (separate process — close them in any order). The chord is swallowed before the OS sees it, so it won't fight your notification center or tiling manager.
+
+## Requirements
+
+- Windows 10/11 with the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on up-to-date systems)
 
 Active:
 
