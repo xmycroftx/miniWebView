@@ -75,14 +75,21 @@ namespace FloatCore3
             const int wmNcHitTest = 0x84;
             const int htMaxButton = 9;
 
-            // snap layouts flyout: let the os own the max-button region
+            // chrome buttons must hit as client: the top resize band below otherwise
+            // eats most of close/min/title (and max needs its snap-layout region)
             if (maxButton != null && maxButton.Visible)
             {
-                var mb = maxButton.Bounds;
-                var ptMax = PointToClient(new Point((int)(m.LParam.ToInt64() & 0xFFFF), (int)((m.LParam.ToInt64() & 0xFFFF0000) >> 16)));
-                if (ptMax.X >= mb.Left && ptMax.X < mb.Right && ptMax.Y >= mb.Top && ptMax.Y < mb.Bottom)
+                var ptBtn = PointToClient(new Point((int)(m.LParam.ToInt64() & 0xFFFF), (int)((m.LParam.ToInt64() & 0xFFFF0000) >> 16)));
+                if (maxButton.Bounds.Contains(ptBtn))
                 {
                     m.Result = (IntPtr)htMaxButton;
+                    return;
+                }
+                if ((closeButton != null && closeButton.Visible && closeButton.Bounds.Contains(ptBtn)) ||
+                    (minButton != null && minButton.Visible && minButton.Bounds.Contains(ptBtn)) ||
+                    (titleButton != null && titleButton.Visible && titleButton.Bounds.Contains(ptBtn)))
+                {
+                    m.Result = (IntPtr)1;   // HTCLIENT - let the button get the click
                     return;
                 }
             }
@@ -169,11 +176,11 @@ namespace FloatCore3
             _initialUrl = initialUrl;
         }
 
-        public Form1(string initialUrl, bool popup, CoreWebView2Environment env) : this()
+        public Form1(string initialUrl, bool popup) : this()
         {
             _initialUrl = initialUrl;
             _isPopup = popup;
-            _sharedEnvironment = env;
+            if (popup) { this.Size = new Size(1000, 700); }
         }
 
         // --- win+shift+n global hotkey -> spawn a new process instance ---
@@ -219,22 +226,10 @@ namespace FloatCore3
         // the borderless skin is permanent.
         private bool _wmResyncDone;
         private bool _isPopup;
-        private CoreWebView2Environment _sharedEnvironment;
 
-        // one explicit environment for the whole process: every webview (main,
-        // popups, standbys) shares this browser process and its profile store
-        private static CoreWebView2Environment _sharedEnv;
-        private static CoreWebView2Environment GetSharedEnvironment()
-        {
-            if (_sharedEnv == null)
-            {
-                var udf = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(Application.ExecutablePath),
-                    "FloatCore3.exe.WebView2");
-                _sharedEnv = Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, udf, null).GetAwaiter().GetResult();
-            }
-            return _sharedEnv;
-        }
+        // every webview (main, popups, standbys) uses the control's default
+        // environment: same user data folder => one shared browser process and
+        // profile, so session cookies carry between the opener and its popups
 
         // pre-initialized hidden webview so oidc/print popups get real popup
         // semantics inside a window we own (window.opener, postMessage, close)
@@ -247,14 +242,15 @@ namespace FloatCore3
             if (_standbyPopup != null || _standbyCreating) { return; }
             if (webView21.CoreWebView2 == null) { return; }
             _standbyCreating = true;
-            var env = GetSharedEnvironment();
-            var popup = new Form1(null, true, env);
+            var popup = new Form1(null, true);
             _standbyPopup = popup;
             popup.FormClosed += (s, ev) => { if (_standbyPopup == popup) { _standbyPopup = null; } };
-            popup.webView21.EnsureCoreWebView2Async(env).ContinueWith(t =>
+            // opener's environment => joins the shared browser process/profile
+            popup.webView21.EnsureCoreWebView2Async(webView21.CoreWebView2.Environment).ContinueWith(t =>
             {
                 _standbyCreating = false;
-                _standbyReady = true;
+                if (!popup.IsDisposed && popup.webView21.CoreWebView2 != null) { _standbyReady = true; }
+                else { popup.Close(); }   // init failed: drop it so the next call retries
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
@@ -388,19 +384,10 @@ namespace FloatCore3
             this.Text = "miniWebView";
             this.BackColor = Color.FromArgb(0, 0, 0);
             SetAlwaysOnTop(_isPopup);   // popups float above their opener
-            if (_sharedEnvironment != null)
-            {
-                webView21.EnsureCoreWebView2Async(GetSharedEnvironment());
-            }
 
             if (_initialUrl != null)
             {
                 try { webView21.Source = new Uri(_initialUrl); } catch { }
-            }
-
-            if (_isPopup)
-            {
-                this.Size = new Size(1000, 700);
             }
         }
         private void Form1_CustomizeMenu() { 
@@ -426,19 +413,48 @@ namespace FloatCore3
             };
 
             // site-driven popups (oidc login, print, etc) render in our own
-            // managed standby window - window.opener and postMessage keep working
+            // managed standby window - window.opener and postMessage keep working.
+            // sized window.open is a relay popup: never redirect in place, that
+            // navigates the opener away and kills the token handoff.
             this.webView21.CoreWebView2.NewWindowRequested += (s, ev) =>
             {
                 ev.Handled = true;
-                if (ev.WindowFeatures.HasSize && _standbyReady)
+                var f = ev.WindowFeatures;
+                var standby = _standbyPopup;
+                if (f != null && f.HasSize && _standbyReady && standby != null && standby.webView21.CoreWebView2 != null)
                 {
-                    var standby = _standbyPopup;
                     _standbyPopup = null;
                     _standbyReady = false;
+                    // honor the caller's requested popup size/position
+                    standby.Size = new Size((int)f.Width, (int)f.Height);
+                    if (f.HasPosition) { standby.Location = new Point((int)f.Left, (int)f.Top); }
                     ev.NewWindow = standby.webView21.CoreWebView2;
                     standby.webView21.Source = new Uri(ev.Uri);
                     standby.Show();
                     EnsureStandbyPopup();
+                }
+                else if (f != null && f.HasSize)
+                {
+                    // no standby ready: build a popup on demand; the deferral
+                    // keeps window.open's proxy alive until its webview exists
+                    var deferral = ev.GetDeferral();
+                    var popup = new Form1(null, true);
+                    popup.webView21.EnsureCoreWebView2Async(webView21.CoreWebView2.Environment).ContinueWith(t =>
+                    {
+                        if (!popup.IsDisposed && popup.webView21.CoreWebView2 != null)
+                        {
+                            if (f.HasSize) { popup.Size = new Size((int)f.Width, (int)f.Height); }
+                            if (f.HasPosition) { popup.Location = new Point((int)f.Left, (int)f.Top); }
+                            ev.NewWindow = popup.webView21.CoreWebView2;
+                            popup.webView21.Source = new Uri(ev.Uri);
+                            popup.Show();
+                        }
+                        else
+                        {
+                            popup.Close();
+                        }
+                        deferral.Complete();
+                    }, TaskScheduler.FromCurrentSynchronizationContext());
                 }
                 else
                 {
@@ -492,14 +508,6 @@ namespace FloatCore3
             {
                 if (IsDisposed || Disposing) { return; }
 
-                // target=_blank links and window.open redirect in place
-                // (chrome-style: no new window, no unmanaged popup webview)
-                this.webView21.CoreWebView2.NewWindowRequested += (s, ev) =>
-                {
-                    ev.Handled = true;
-                    webView21.Source = new Uri(ev.Uri);
-                };
-
                 // concurrent env creation (multiple instances racing the shared
                 // browser process) can fail transiently - retry with backoff
                 if (!e.IsSuccess)
@@ -512,14 +520,14 @@ namespace FloatCore3
                         try
                         {
                             await webView21.EnsureCoreWebView2Async();
-                            if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
+                            if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); EnsureStandbyPopup(); }
                             return;
                         }
                         catch { continue; }
                     }
                     return;
                 }
-                if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
+                if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); EnsureStandbyPopup(); }
             }
             catch (Exception ex)
             {
