@@ -339,6 +339,7 @@ namespace FloatCore3
             if (this.textBox1.Visible != true)
             {
                 this.textBox1.Visible = true;
+                this.minButton.Visible = true;
                 this.maxButton.Visible = true;
                 this.closeButton.Visible = true;
                 this.titleButton.Visible = true;
@@ -367,6 +368,7 @@ namespace FloatCore3
             if (this.textBox1.Visible != false)
             {
                 this.textBox1.Visible = false;
+                this.minButton.Visible = false;
                 this.maxButton.Visible = false;
                 this.closeButton.Visible = false;
                 this.titleButton.Visible = false;
