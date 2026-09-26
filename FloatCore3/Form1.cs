@@ -162,6 +162,13 @@ namespace FloatCore3
             textBox1.Enter += textBox1_Enter;
         }
 
+        private string _initialUrl;
+
+        public Form1(string initialUrl) : this()
+        {
+            _initialUrl = initialUrl;
+        }
+
         public Form1(string initialUrl, bool popup, CoreWebView2Environment env) : this()
         {
             _initialUrl = initialUrl;
@@ -390,11 +397,16 @@ namespace FloatCore3
                 webView21.EnsureCoreWebView2Async(GetSharedEnvironment());
             }
 
+            if (_initialUrl != null)
+            {
+                try { webView21.Source = new Uri(_initialUrl); } catch { }
+            }
+
             if (_isPopup)
             {
                 this.Size = new Size(1000, 700);
             }
-
+        }
             if (_initialUrl != null)
             {
                 try { webView21.Source = new Uri(_initialUrl); } catch { }

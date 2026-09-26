@@ -12,15 +12,16 @@ namespace FloatCore3
         /// The main entry point for the application.
         /// </summary>
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
-
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Form1 form1 = new Form1();
+
+            // os shell launches pass the target url as argv (default browser
+            // invocations, oidc redirects, protocol handlers)
+            var url = args?.FirstOrDefault(a => a.StartsWith("http", StringComparison.OrdinalIgnoreCase) || Uri.TryCreate(a, UriKind.Absolute, out _));
+            Form1 form1 = new Form1(url);
             Application.Run(form1);
-
-
         }
 
 
