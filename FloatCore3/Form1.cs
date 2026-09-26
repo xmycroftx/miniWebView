@@ -239,19 +239,32 @@ namespace FloatCore3
 
         private void EnsureStandbyPopup()
         {
+            // only openers keep a standby pool - popups calling this would
+            // recurse: each standby's init would spawn its own standby, forever
+            if (_isPopup) { return; }
             if (_standbyPopup != null || _standbyCreating) { return; }
             if (webView21.CoreWebView2 == null) { return; }
             _standbyCreating = true;
             var popup = new Form1(null, true);
             _standbyPopup = popup;
             popup.FormClosed += (s, ev) => { if (_standbyPopup == popup) { _standbyPopup = null; } };
-            // opener's environment => joins the shared browser process/profile
-            popup.webView21.EnsureCoreWebView2Async(webView21.CoreWebView2.Environment).ContinueWith(t =>
+            // readiness comes from the init event: the EnsureCoreWebView2Async
+            // task itself never completes for a form that was never shown
+            popup.webView21.CoreWebView2InitializationCompleted += (s2, ev2) =>
             {
                 _standbyCreating = false;
-                if (!popup.IsDisposed && popup.webView21.CoreWebView2 != null) { _standbyReady = true; }
-                else { popup.Close(); }   // init failed: drop it so the next call retries
-            }, TaskScheduler.FromCurrentSynchronizationContext());
+                if (!popup.IsDisposed && popup.webView21.CoreWebView2 != null)
+                {
+                    _standbyReady = true;
+                }
+                else
+                {
+                    popup.Close();   // drop it so the next call retries
+                }
+            };
+            // opener's environment => joins the shared browser process/profile.
+            // kick-start only; do not await or ContinueWith this task
+            _ = popup.webView21.EnsureCoreWebView2Async(webView21.CoreWebView2.Environment);
         }
 
         protected override void OnShown(EventArgs e)
@@ -416,45 +429,66 @@ namespace FloatCore3
             // managed standby window - window.opener and postMessage keep working.
             // sized window.open is a relay popup: never redirect in place, that
             // navigates the opener away and kills the token handoff.
+            // rule: this event is a synchronous round-trip with the browser
+            // process - set NewWindow/deferral and get out. controller creation,
+            // Show() and the standby refill all run after the handler returns
+            // (BeginInvoke) or the browser can deadlock waiting on us.
             this.webView21.CoreWebView2.NewWindowRequested += (s, ev) =>
             {
                 ev.Handled = true;
                 var f = ev.WindowFeatures;
+                bool relay = f != null && f.HasSize;
                 var standby = _standbyPopup;
-                if (f != null && f.HasSize && _standbyReady && standby != null && standby.webView21.CoreWebView2 != null)
+                if (relay && _standbyReady && standby != null && standby.webView21.CoreWebView2 != null)
                 {
                     _standbyPopup = null;
                     _standbyReady = false;
                     // honor the caller's requested popup size/position
                     standby.Size = new Size((int)f.Width, (int)f.Height);
                     if (f.HasPosition) { standby.Location = new Point((int)f.Left, (int)f.Top); }
+                    // NewWindow is navigated to ev.Uri by WebView2 itself
                     ev.NewWindow = standby.webView21.CoreWebView2;
-                    standby.webView21.Source = new Uri(ev.Uri);
-                    standby.Show();
-                    EnsureStandbyPopup();
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        if (!standby.IsDisposed) { standby.Show(); }
+                        EnsureStandbyPopup();
+                    }));
                 }
-                else if (f != null && f.HasSize)
+                else if (relay)
                 {
-                    // no standby ready: build a popup on demand; the deferral
-                    // keeps window.open's proxy alive until its webview exists
+                    // no standby ready: take a deferral and build the popup's
+                    // webview only after this handler has returned; readiness
+                    // comes from the init event (the task never completes for
+                    // a form that was never shown)
                     var deferral = ev.GetDeferral();
                     var popup = new Form1(null, true);
-                    popup.webView21.EnsureCoreWebView2Async(webView21.CoreWebView2.Environment).ContinueWith(t =>
+                    var env = webView21.CoreWebView2.Environment;
+                    popup.webView21.CoreWebView2InitializationCompleted += (s2, ev2) =>
                     {
-                        if (!popup.IsDisposed && popup.webView21.CoreWebView2 != null)
+                        try
                         {
-                            if (f.HasSize) { popup.Size = new Size((int)f.Width, (int)f.Height); }
-                            if (f.HasPosition) { popup.Location = new Point((int)f.Left, (int)f.Top); }
-                            ev.NewWindow = popup.webView21.CoreWebView2;
-                            popup.webView21.Source = new Uri(ev.Uri);
-                            popup.Show();
+                            if (!popup.IsDisposed && popup.webView21.CoreWebView2 != null)
+                            {
+                                if (f != null && f.HasSize) { popup.Size = new Size((int)f.Width, (int)f.Height); }
+                                if (f != null && f.HasPosition) { popup.Location = new Point((int)f.Left, (int)f.Top); }
+                                ev.NewWindow = popup.webView21.CoreWebView2;
+                                popup.Show();
+                            }
+                            else
+                            {
+                                popup.Close();
+                            }
                         }
-                        else
+                        catch (Exception)
                         {
                             popup.Close();
                         }
-                        deferral.Complete();
-                    }, TaskScheduler.FromCurrentSynchronizationContext());
+                        finally
+                        {
+                            deferral.Complete();
+                        }
+                    };
+                    _ = popup.webView21.EnsureCoreWebView2Async(env);
                 }
                 else
                 {
