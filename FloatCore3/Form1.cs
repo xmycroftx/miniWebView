@@ -488,33 +488,43 @@ namespace FloatCore3
 
         private async void webView21_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
         {
-            // target=_blank links and window.open redirect in place
-            // (chrome-style: no new window, no unmanaged popup webview)
-            this.webView21.CoreWebView2.NewWindowRequested += (s, ev) =>
+            try
             {
-                ev.Handled = true;
-                webView21.Source = new Uri(ev.Uri);
-            };
+                if (IsDisposed || Disposing) { return; }
 
-            // concurrent env creation (multiple instances racing the shared
-            // browser process) can fail transiently - retry with backoff
-            if (!e.IsSuccess)
-            {
-                while (_webviewInitRetries < 3)
+                // target=_blank links and window.open redirect in place
+                // (chrome-style: no new window, no unmanaged popup webview)
+                this.webView21.CoreWebView2.NewWindowRequested += (s, ev) =>
                 {
-                    _webviewInitRetries++;
-                    await Task.Delay(1500 * _webviewInitRetries);
-                    try
+                    ev.Handled = true;
+                    webView21.Source = new Uri(ev.Uri);
+                };
+
+                // concurrent env creation (multiple instances racing the shared
+                // browser process) can fail transiently - retry with backoff
+                if (!e.IsSuccess)
+                {
+                    while (_webviewInitRetries < 3 && !IsDisposed && !Disposing)
                     {
-                        await webView21.EnsureCoreWebView2Async();
-                        if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
-                        return;
+                        _webviewInitRetries++;
+                        await Task.Delay(1500 * _webviewInitRetries);
+                        if (IsDisposed || Disposing) { return; }
+                        try
+                        {
+                            await webView21.EnsureCoreWebView2Async();
+                            if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
+                            return;
+                        }
+                        catch { continue; }
                     }
-                    catch { continue; }
+                    return;
                 }
-                return;
+                if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
             }
-            if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("webview init: " + ex.Message);
+            }
         }
 
 
