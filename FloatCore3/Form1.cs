@@ -1,4 +1,5 @@
-﻿using Microsoft.Web.WebView2.Core;
+﻿﻿using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -262,9 +263,23 @@ namespace FloatCore3
                     popup.Close();   // drop it so the next call retries
                 }
             };
-            // opener's environment => joins the shared browser process/profile.
-            // kick-start only; do not await or ContinueWith this task
-            _ = popup.webView21.EnsureCoreWebView2Async(webView21.CoreWebView2.Environment);
+            // kick-start init on the never-shown form by forcing handles: the
+            // wrapper auto-inits at control-handle creation with its default
+            // environment. never EnsureCoreWebView2Async here - the task never
+            // completes for a hidden form and re-calling it with an environment
+            // object throws if the wrapper already started its own init
+            try
+            {
+                var formHandle = popup.Handle;      // host window for the controller
+                var controlHandle = popup.webView21.Handle;   // starts auto-init
+            }
+            catch (Exception)
+            {
+                // drop this standby, the next round retries
+                _standbyCreating = false;
+                _standbyPopup = null;
+                popup.Close();
+            }
         }
 
         protected override void OnShown(EventArgs e)
@@ -462,7 +477,6 @@ namespace FloatCore3
                     // a form that was never shown)
                     var deferral = ev.GetDeferral();
                     var popup = new Form1(null, true);
-                    var env = webView21.CoreWebView2.Environment;
                     popup.webView21.CoreWebView2InitializationCompleted += (s2, ev2) =>
                     {
                         try
@@ -488,7 +502,20 @@ namespace FloatCore3
                             deferral.Complete();
                         }
                     };
-                    _ = popup.webView21.EnsureCoreWebView2Async(env);
+                    // kick-start init on the never-shown form; readiness comes
+                    // from the init event above (never EnsureCoreWebView2Async:
+                    // it never completes for hidden forms and its environment
+                    // parameter can conflict with the wrapper's own init)
+                    try
+                    {
+                        var formHandle = popup.Handle;
+                        var controlHandle = popup.webView21.Handle;
+                    }
+                    catch (Exception)
+                    {
+                        popup.Close();
+                        deferral.Complete();
+                    }
                 }
                 else
                 {
