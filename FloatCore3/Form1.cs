@@ -176,9 +176,11 @@ namespace FloatCore3
             _sharedEnvironment = env;
         }
 
-        public Form1(string initialUrl) : this()
+        public Form1(string initialUrl, bool popup, CoreWebView2Environment env) : this()
         {
             _initialUrl = initialUrl;
+            _isPopup = popup;
+            _sharedEnvironment = env;
         }
 
         // --- win+shift+n global hotkey -> spawn a new process instance ---
