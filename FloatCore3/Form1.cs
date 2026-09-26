@@ -218,7 +218,6 @@ namespace FloatCore3
         // "Always on Top" = pure behavior toggle (z-order + focus chrome);
         // the borderless skin is permanent.
         private bool _wmResyncDone;
-        private string _initialUrl;
         private bool _isPopup;
         private CoreWebView2Environment _sharedEnvironment;
 
