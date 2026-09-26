@@ -407,12 +407,7 @@ namespace FloatCore3
                 this.Size = new Size(1000, 700);
             }
         }
-            if (_initialUrl != null)
-            {
-                try { webView21.Source = new Uri(_initialUrl); } catch { }
-            }
-        }
-        private void Form1_CustomizeMenu() {
+        private void Form1_CustomizeMenu() { 
         this.webView21.CoreWebView2.ContextMenuRequested += delegate (object sender,CoreWebView2ContextMenuRequestedEventArgs args)
             {
                 IList<CoreWebView2ContextMenuItem> menuList = args.MenuItems;
