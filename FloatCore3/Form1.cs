@@ -176,13 +176,6 @@ namespace FloatCore3
             _sharedEnvironment = env;
         }
 
-        public Form1(string initialUrl, bool popup, CoreWebView2Environment env) : this()
-        {
-            _initialUrl = initialUrl;
-            _isPopup = popup;
-            _sharedEnvironment = env;
-        }
-
         // --- win+shift+n global hotkey -> spawn a new process instance ---
         private const int WM_HOTKEY = 0x0312;
         private const int HOTKEY_NEWWINDOW = 0x0901;
