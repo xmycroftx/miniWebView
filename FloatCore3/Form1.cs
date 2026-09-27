@@ -381,6 +381,9 @@ namespace FloatCore3
             // transparency only in always-on-top float mode: opaque windows are
             // tileable by window managers (ws_ex_layered gets them ignored)
             SetWindowOpacity(this.alwaysOnTopToolStripMenuItem.Checked ? (byte)204 : (byte)255);
+            // NOTE: never touch the winforms Opacity property here - it throws
+            // Win32Exception on this frameless (nccalcsize-stripped) window,
+            // which used to surface as a JIT dialog on every deactivation
             /* No Longer necessary, we are none style always
             if (this.FormBorderStyle != FormBorderStyle.None)
             {
@@ -388,7 +391,6 @@ namespace FloatCore3
                 this.Location = new Point((this.Location.X + 4), this.Location.Y);
                 this.Size = new Size(this.Size.Width + 4, this.Size.Height+35 );
             }*/
-            if (this.Opacity != 0.8) { this.Opacity = 0.8; }
             if (this.textBox1.Visible != false)
             {
                 this.textBox1.Visible = false;
@@ -397,7 +399,7 @@ namespace FloatCore3
                 this.closeButton.Visible = false;
                 this.titleButton.Visible = false;
             }
-            
+
 
         }
         private void webView21_MouseLeave(object sender, EventArgs e)
@@ -561,6 +563,7 @@ namespace FloatCore3
         }
 
         private int _webviewInitRetries;
+        private bool _initRetryLoopActive;
         private bool _customizeDone;
 
         private async void webView21_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
@@ -569,14 +572,25 @@ namespace FloatCore3
             {
                 if (IsDisposed || Disposing) { return; }
 
-                // concurrent env creation (multiple instances racing the shared
-                // browser process) can fail transiently - retry with backoff
+                // ERROR_INVALID_STATE here is almost always transient: the shared
+                // user-data-folder browser tree of a just-closed instance (or a
+                // racing sibling instance) is still coming up or down. give it
+                // real time to clear - a permanently blank window is the alternative
                 if (!e.IsSuccess)
                 {
-                    while (_webviewInitRetries < 3 && !IsDisposed && !Disposing)
+                    // this event re-fires for every failed attempt, so the
+                    // retry loop below would spawn overlapping copies of
+                    // itself - and concurrent EnsureCoreWebView2Async calls
+                    // fail with ERROR_INVALID_STATE forever. one loop at a
+                    // time; later firings are no-ops
+                    if (_initRetryLoopActive) { return; }
+                    _initRetryLoopActive = true;
+                    try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"),
+                        DateTime.Now.ToString("HH:mm:ss.fff") + " INIT FAILED isPopup=" + _isPopup + ": " + e.InitializationException + "\r\n"); } catch { }
+                    while (_webviewInitRetries < 15 && !IsDisposed && !Disposing)
                     {
                         _webviewInitRetries++;
-                        await Task.Delay(1500 * _webviewInitRetries);
+                        await Task.Delay(3000);
                         if (IsDisposed || Disposing) { return; }
                         try
                         {
@@ -584,11 +598,28 @@ namespace FloatCore3
                             if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); EnsureStandbyPopup(); }
                             return;
                         }
-                        catch { continue; }
+                        catch (Exception ex) { try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"), DateTime.Now.ToString("HH:mm:ss.fff") + " RETRY FAIL isPopup=" + _isPopup + ": " + ex.Message + "\r\n"); } catch { } continue; }
                     }
+                    _initRetryLoopActive = false;
                     return;
                 }
                 if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); EnsureStandbyPopup(); }
+                // TEMP-DIAG
+                this.webView21.CoreWebView2.NavigationStarting += (s2, ev2) =>
+                {
+                    try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"),
+                        DateTime.Now.ToString("HH:mm:ss.fff") + " NAV START: " + ev2.Uri + "\r\n"); } catch { }
+                };
+                this.webView21.CoreWebView2.NavigationCompleted += (s2, ev2) =>
+                {
+                    try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"),
+                        DateTime.Now.ToString("HH:mm:ss.fff") + " NAV DONE success=" + ev2.IsSuccess + " err=" + ev2.WebErrorStatus + " id=" + ev2.NavigationId + "\r\n"); } catch { }
+                };
+                this.webView21.CoreWebView2.ProcessFailed += (s2, ev2) =>
+                {
+                    try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"),
+                        DateTime.Now.ToString("HH:mm:ss.fff") + " PROCFAIL: " + ev2.ProcessFailedKind + "\r\n"); } catch { }
+                };
             }
             catch (Exception ex)
             {
