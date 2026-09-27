@@ -118,3 +118,49 @@ and the signature above is worth filing on `MicrosoftEdge/WebView2Feedback`.
 3. Retest the minimal attach; if fixed, done.
 4. If not: check Windows servicing/EdgeUpdate logs for overnight changes, then pin a
    Fixed-Version runtime and file the signature on WebView2Feedback.
+
+## Recurrence 2026-09-27 (fresh install of the same disease, new data)
+
+The 0x8007139F blank-window failure came back the morning after the v0.0.10
+ship, across all builds (Debug + Release, fresh UDFs, pinned runtime folder)
+while the runtime stayed at 154.0.4258.37. Facts for the next one:
+
+- `chrome_debug.log` (enable `--enable-logging` via
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`) shows the browser starting up
+  fully healthy — components registered, display enumerated — then a clean
+  shutdown sequence beginning 12 ms after
+  `ERROR: direct_composition_support.cc AMD VideoProcessorGetOutputExtension
+  failed: The parameter is incorrect (0x80070057)` inside the WebView2 GPU
+  process. The host aborts the handshake and tells the browser to exit:
+  composition-stack failure, not browser corruption.
+- A standalone PowerShell probe reproduces the disease without WebView2:
+  `CreateWindowEx(WS_EX_LAYERED)` succeeds but `SetLayeredWindowAttributes`
+  fails from any process with "The parameter is incorrect". Layered windows
+  and DirectComposition share the DWM composition pipeline — the whole
+  pipeline is sick for the boot session.
+- Falsified this episode: config-host block (config.edge.skype.com,
+  msedge.api.cdp.microsoft.com → hosts, DNS flush — no change), bootstrapper
+  repair (exit 0 but 154 is newest ⇒ no-op; it only fixes when it can lay a
+  NEWER version alongside), `--disable-gpu --disable-gpu-compositing` via
+  CreationProperties args (still 0x8007139F), DWM restart (kill dwm.exe,
+  auto-restarts, layered API still fails), WebView2 process zombies (none),
+  Defender (no relevant detections), user-data folder state (fresh UDFs fail
+  identically).
+- Note: the system hosts file has been **empty** since the 2026-09-25
+  session's "restore" — diag entries added to it are lost if anyone restores
+  from that (empty) backup.
+- App-side hardening shipped in this window (independent of machine state):
+  init retry storm fixed (the completed event re-fires per attempt and used
+  to spawn overlapping retry loops — concurrent EnsureCoreWebView2Async
+  calls then fail 0x8007139F forever), retries extended to 15×3 s, the
+  Opacity-on-deactivation JIT crash removed (legacy `Form.Opacity` line
+  still present in MakeTransp; throws Win32Exception on the
+  nccalcsize-stripped frameless window), init failures log to
+  `%TEMP%\fc-init.log`, hardware acceleration + direct composition off by
+  default.
+- Still-untested remedies (need elevation or a manual download):
+  uninstall + reinstall the runtime (a real refresh — the no-op repair
+  doesn't count), Fixed-Version runtime pin from the WebView2 download
+  page, AMD driver reinstall. A reboot has previously restored the
+  composition pipeline; whether it survives this episode's reboots was not
+  measured.
