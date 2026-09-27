@@ -564,6 +564,30 @@ namespace FloatCore3
 
         private int _webviewInitRetries;
         private bool _initRetryLoopActive;
+
+        // kill msedgewebview2 trees bound to OUR user data folder only - these
+        // are orphans of this app's own failed/force-closed sessions. other
+        // apps' webviews (SearchHost etc) use different folders and are spared
+        private static void KillOrphanedWebviews()
+        {
+            try
+            {
+                using (var searcher = new System.Management.ManagementObjectSearcher(
+                    "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='msedgewebview2.exe'"))
+                {
+                    foreach (var o in searcher.Get())
+                    {
+                        var cmd = (o["CommandLine"] as string) ?? string.Empty;
+                        var pid = Convert.ToInt32(o["ProcessId"]);
+                        if (cmd.IndexOf("FloatCore3.exe.WebView2", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            try { System.Diagnostics.Process.GetProcessById(pid).Kill(); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
         private bool _customizeDone;
 
         private async void webView21_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
@@ -595,15 +619,25 @@ namespace FloatCore3
                         try
                         {
                             await webView21.EnsureCoreWebView2Async();
-                            if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); EnsureStandbyPopup(); }
+                            if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
                             return;
                         }
-                        catch (Exception ex) { try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"), DateTime.Now.ToString("HH:mm:ss.fff") + " RETRY FAIL isPopup=" + _isPopup + ": " + ex.Message + "\r\n"); } catch { } continue; }
+                        catch (Exception ex)
+                        {
+                            try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"), DateTime.Now.ToString("HH:mm:ss.fff") + " RETRY FAIL isPopup=" + _isPopup + ": " + ex.Message + "\r\n"); } catch { }
+                            // a failed attempt leaves its browser tree orphaned, and
+                            // that tree holds the browser-process slot for our user
+                            // data folder - every later attempt then fails with
+                            // ERROR_INVALID_STATE until it dies on its own. kill
+                            // our own orphaned trees before the next attempt.
+                            KillOrphanedWebviews();
+                            continue;
+                        }
                     }
                     _initRetryLoopActive = false;
                     return;
                 }
-                if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); EnsureStandbyPopup(); }
+                if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
                 // TEMP-DIAG
                 this.webView21.CoreWebView2.NavigationStarting += (s2, ev2) =>
                 {
