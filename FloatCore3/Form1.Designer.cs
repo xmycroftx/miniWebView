@@ -39,6 +39,16 @@ namespace FloatCore3
             this.alwaysOnTopToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.textBox2 = new System.Windows.Forms.TextBox();
             this.webView21 = new Microsoft.Web.WebView2.WinForms.WebView2();
+            // hardware acceleration off by default: the AMD DirectComposition
+            // stack on this machine intermittently breaks the controller
+            // handshake (0x8007139F -> blank window) after reboots/gaming.
+            // software rendering sidesteps composition entirely. must be set
+            // before Source below - the wrapper rejects CreationProperties
+            // afterwards
+            this.webView21.CreationProperties = new Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties
+            {
+                AdditionalBrowserArguments = "--disable-gpu --disable-gpu-compositing --disable-direct-composition",
+            };
             this.textBox1 = new System.Windows.Forms.TextBox();
             this.closeButton = new System.Windows.Forms.Button();
             this.imageList2 = new System.Windows.Forms.ImageList(this.components);
