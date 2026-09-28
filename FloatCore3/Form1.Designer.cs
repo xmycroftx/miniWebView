@@ -39,16 +39,6 @@ namespace FloatCore3
             this.alwaysOnTopToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.textBox2 = new System.Windows.Forms.TextBox();
             this.webView21 = new Microsoft.Web.WebView2.WinForms.WebView2();
-            // hardware acceleration off by default: the AMD DirectComposition
-            // stack on this machine intermittently breaks the controller
-            // handshake (0x8007139F -> blank window) after reboots/gaming.
-            // software rendering sidesteps composition entirely. must be set
-            // before Source below - the wrapper rejects CreationProperties
-            // afterwards
-            this.webView21.CreationProperties = new Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties
-            {
-                AdditionalBrowserArguments = "--disable-gpu --disable-gpu-compositing --disable-direct-composition",
-            };
             this.textBox1 = new System.Windows.Forms.TextBox();
             this.closeButton = new System.Windows.Forms.Button();
             this.imageList2 = new System.Windows.Forms.ImageList(this.components);
@@ -109,7 +99,6 @@ namespace FloatCore3
             this.webView21.Margin = new System.Windows.Forms.Padding(0, 1, 0, 0);
             this.webView21.Name = "webView21";
             this.webView21.Size = new System.Drawing.Size(642, 515);
-            this.webView21.Source = new System.Uri("https://www.google.com", System.UriKind.Absolute);
             this.webView21.TabIndex = 3;
             this.webView21.ZoomFactor = 1D;
             this.webView21.CoreWebView2InitializationCompleted += new System.EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2InitializationCompletedEventArgs>(this.webView21_CoreWebView2InitializationCompleted);

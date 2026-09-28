@@ -168,6 +168,21 @@ namespace FloatCore3
             // fullscreen stays inside the window: tiling keeps working and the
             // page's fullscreen element is constrained to the window bounds
             textBox1.Enter += textBox1_Enter;
+
+            // explicit environment, established before anything else can race
+            // it (the minimal-host experiment: this exact sequence works while
+            // wrapper auto-init stalls). uses the fixed-version runtime folder
+            // shipped beside the exe when present - immune to evergreen
+            // runtime corruption - else the system install. user data folder
+            // pinned beside the exe with the runtime it was created against
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string runtimeDir = System.IO.Path.Combine(baseDir, "WebView2Runtime");
+            string runtimeFolder = System.IO.Directory.Exists(System.IO.Path.Combine(runtimeDir, "msedgewebview2.exe"))
+                ? runtimeDir
+                : null;
+            var envTask = CoreWebView2Environment.CreateAsync(runtimeFolder,
+                System.IO.Path.Combine(baseDir, "FloatCore3.exe.WebView2"));
+            webView21.EnsureCoreWebView2Async(envTask.GetAwaiter().GetResult());
         }
 
         private string _initialUrl;

@@ -18,8 +18,10 @@ namespace FloatCore3
             Application.SetCompatibleTextRenderingDefault(false);
 
             // os shell launches pass the target url as argv (default browser
-            // invocations, oidc redirects, protocol handlers)
-            var url = args?.FirstOrDefault(a => a.StartsWith("http", StringComparison.OrdinalIgnoreCase) || Uri.TryCreate(a, UriKind.Absolute, out _));
+            // invocations, oidc redirects, protocol handlers). no arg =
+            // google start page (the designer no longer sets a Source - the
+            // explicit environment attach must happen before any Source)
+            var url = args?.FirstOrDefault(a => a.StartsWith("http", StringComparison.OrdinalIgnoreCase) || Uri.TryCreate(a, UriKind.Absolute, out _)) ?? "https://www.google.com";
             Form1 form1 = new Form1(url);
             Application.Run(form1);
         }
