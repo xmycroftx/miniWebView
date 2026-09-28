@@ -174,14 +174,23 @@ namespace FloatCore3
             // wrapper auto-init stalls). uses the fixed-version runtime folder
             // shipped beside the exe when present - immune to evergreen
             // runtime corruption - else the system install. user data folder
-            // pinned beside the exe with the runtime it was created against
+            // pinned beside the exe with the runtime it was created against.
+            // DirectComposition presentation breaks on this machine's AMD
+            // stack after some boots - every webview window renders as a
+            // black box while the page actually loads behind it. disabling
+            // DComp forces the legacy presentation path: verified rendering
+            // where every other combination produced black boxes
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string runtimeDir = System.IO.Path.Combine(baseDir, "WebView2Runtime");
             string runtimeFolder = System.IO.Directory.Exists(System.IO.Path.Combine(runtimeDir, "msedgewebview2.exe"))
                 ? runtimeDir
                 : null;
+            var envOptions = new CoreWebView2EnvironmentOptions
+            {
+                AdditionalBrowserArguments = "--disable-direct-composition",
+            };
             var envTask = CoreWebView2Environment.CreateAsync(runtimeFolder,
-                System.IO.Path.Combine(baseDir, "FloatCore3.exe.WebView2"));
+                System.IO.Path.Combine(baseDir, "FloatCore3.exe.WebView2"), envOptions);
             webView21.EnsureCoreWebView2Async(envTask.GetAwaiter().GetResult());
         }
 
