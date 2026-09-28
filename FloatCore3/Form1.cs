@@ -412,6 +412,7 @@ namespace FloatCore3
         private void Form1_Load(object sender, EventArgs e)
         {
             this.Text = "miniWebView";
+            this.WindowState = FormWindowState.Minimized; // TEMP-DIAG
             this.BackColor = Color.FromArgb(0, 0, 0);
             SetAlwaysOnTop(_isPopup);   // popups float above their opener
 
@@ -611,7 +612,11 @@ namespace FloatCore3
                     _initRetryLoopActive = true;
                     try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"),
                         DateTime.Now.ToString("HH:mm:ss.fff") + " INIT FAILED isPopup=" + _isPopup + ": " + e.InitializationException + "\r\n"); } catch { }
-                    while (_webviewInitRetries < 15 && !IsDisposed && !Disposing)
+                    // 100 x 3s ~ 5 minutes of self-healing: a wedged browser tree
+                    // from an abnormal close can hold the user-data-folder for
+                    // minutes; a blank window that recovers beats one that
+                    // stays dead
+                    while (_webviewInitRetries < 100 && !IsDisposed && !Disposing)
                     {
                         _webviewInitRetries++;
                         await Task.Delay(3000);
