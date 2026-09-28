@@ -171,23 +171,45 @@ namespace FloatCore3
 
             // explicit environment, established before anything else can race
             // it (the minimal-host experiment: this exact sequence works while
-            // wrapper auto-init stalls). uses the fixed-version runtime folder
-            // shipped beside the exe when present - immune to evergreen
-            // runtime corruption - else the system install. user data folder
-            // pinned beside the exe with the runtime it was created against.
-            // DirectComposition presentation breaks on this machine's AMD
-            // stack after some boots - every webview window renders as a
-            // black box while the page actually loads behind it. disabling
-            // DComp forces the legacy presentation path: verified rendering
-            // where every other combination produced black boxes
+            // wrapper auto-init stalls). runtime source order:
+            //   1. WebView2Runtime folder beside the exe (shipped fixed
+            //      version - immune to evergreen folder corruption)
+            //   2. newest Edge Beta version folder (155+ builds sidestep the
+            //      broken evergreen 154 handshake; beta auto-updates itself,
+            //      resolved fresh at every launch)
+            //   3. evergreen fallback (works when the machine cooperates)
+            // user data folder pinned beside the exe with the runtime it was
+            // created against. DirectComposition presentation also breaks on
+            // this machine's AMD stack after some boots (black boxes while
+            // the page loads behind them) - disable it on the 154 fixed
+            // folder; the 155 beta renders fine with DComp on
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string runtimeDir = System.IO.Path.Combine(baseDir, "WebView2Runtime");
-            string runtimeFolder = System.IO.Directory.Exists(System.IO.Path.Combine(runtimeDir, "msedgewebview2.exe"))
-                ? runtimeDir
-                : null;
+            string runtimeFolder = null;
+            string shipped = System.IO.Path.Combine(baseDir, "WebView2Runtime");
+            if (System.IO.Directory.Exists(System.IO.Path.Combine(shipped, "msedgewebview2.exe")))
+            {
+                runtimeFolder = shipped;
+            }
+            else
+            {
+                string betaRoot = System.IO.Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86),
+                    "Microsoft", "Edge Beta", "Application");
+                if (System.IO.Directory.Exists(betaRoot))
+                {
+                    var newest = new System.IO.DirectoryInfo(betaRoot)
+                        .GetDirectories()
+                        .Where(d => System.Text.RegularExpressions.Regex.IsMatch(d.Name, @"^\d+\.\d+\.\d+\.\d+$"))
+                        .OrderByDescending(d => d.Name)
+                        .FirstOrDefault();
+                    if (newest != null) { runtimeFolder = newest.FullName; }
+                }
+            }
             var envOptions = new CoreWebView2EnvironmentOptions
             {
-                AdditionalBrowserArguments = "--disable-direct-composition",
+                AdditionalBrowserArguments = runtimeFolder != null && runtimeFolder.EndsWith("154.0.4258.37", StringComparison.Ordinal)
+                    ? "--disable-direct-composition"
+                    : "",
             };
             var envTask = CoreWebView2Environment.CreateAsync(runtimeFolder,
                 System.IO.Path.Combine(baseDir, "FloatCore3.exe.WebView2"), envOptions);
