@@ -174,10 +174,12 @@ namespace FloatCore3
             // wrapper auto-init stalls). runtime source order:
             //   1. WebView2Runtime folder beside the exe (shipped fixed
             //      version - immune to evergreen folder corruption)
-            //   2. newest Edge Beta version folder (155+ builds sidestep the
-            //      broken evergreen 154 handshake; beta auto-updates itself,
-            //      resolved fresh at every launch)
-            //   3. evergreen fallback (works when the machine cooperates)
+            //   2. evergreen runtime, resolved by the loader (null folder).
+            //      with no stable runtime installed the loader itself falls
+            //      back to Edge Beta, then Dev, then Canary. preferring Beta
+            //      outright went stale: beta 157 self-terminates in the
+            //      hosting handshake on this box while evergreen 156 hosts
+            //      fine (see WEBVIEW2-INCIDENT, recurrence 2026-11-01)
             // user data folder pinned beside the exe with the runtime it was
             // created against. DirectComposition presentation also breaks on
             // this machine's AMD stack after some boots (black boxes while
@@ -186,24 +188,9 @@ namespace FloatCore3
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string runtimeFolder = null;
             string shipped = System.IO.Path.Combine(baseDir, "WebView2Runtime");
-            if (System.IO.Directory.Exists(System.IO.Path.Combine(shipped, "msedgewebview2.exe")))
+            if (System.IO.File.Exists(System.IO.Path.Combine(shipped, "msedgewebview2.exe")))
             {
                 runtimeFolder = shipped;
-            }
-            else
-            {
-                string betaRoot = System.IO.Path.Combine(
-                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86),
-                    "Microsoft", "Edge Beta", "Application");
-                if (System.IO.Directory.Exists(betaRoot))
-                {
-                    var newest = new System.IO.DirectoryInfo(betaRoot)
-                        .GetDirectories()
-                        .Where(d => System.Text.RegularExpressions.Regex.IsMatch(d.Name, @"^\d+\.\d+\.\d+\.\d+$"))
-                        .OrderByDescending(d => d.Name)
-                        .FirstOrDefault();
-                    if (newest != null) { runtimeFolder = newest.FullName; }
-                }
             }
             var envOptions = new CoreWebView2EnvironmentOptions
             {
@@ -213,7 +200,10 @@ namespace FloatCore3
             };
             var envTask = CoreWebView2Environment.CreateAsync(runtimeFolder,
                 System.IO.Path.Combine(baseDir, "FloatCore3.exe.WebView2"), envOptions);
-            webView21.EnsureCoreWebView2Async(envTask.GetAwaiter().GetResult());
+            var env = envTask.GetAwaiter().GetResult();
+            try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"),
+                DateTime.Now.ToString("HH:mm:ss.fff") + " RUNTIME " + env.BrowserVersionString + " folder=" + (runtimeFolder ?? "(loader default)") + "\r\n"); } catch { }
+            webView21.EnsureCoreWebView2Async(env);
         }
 
         private string _initialUrl;
@@ -458,7 +448,6 @@ namespace FloatCore3
         private void Form1_Load(object sender, EventArgs e)
         {
             this.Text = "miniWebView";
-            this.WindowState = FormWindowState.Minimized; // TEMP-DIAG
             this.BackColor = Color.FromArgb(0, 0, 0);
             SetAlwaysOnTop(_isPopup);   // popups float above their opener
 

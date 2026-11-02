@@ -164,3 +164,43 @@ while the runtime stayed at 154.0.4258.37. Facts for the next one:
   page, AMD driver reinstall. A reboot has previously restored the
   composition pipeline; whether it survives this episode's reboots was not
   measured.
+
+## Recurrence 2026-11-01 (runtime-specific: Edge Beta 157)
+
+Fresh build of `2e071dd` (+ TEMP-DIAG minimize removed) opened blank;
+`fc-init.log` showed the classic signature at 19:38 and 19:44, box booted
+19:29:52. The app resolved tier 2 (Edge Beta `157.0.4341.30`) - tier 1 never
+matches (see bug below), evergreen is `156.0.4314.58`.
+
+Matrix, each runtime forced via `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`, logging
+via `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--enable-logging --v=1 --log-file=`,
+fresh UDFs via `WEBVIEW2_USER_DATA_FOLDER`, 20 s per cell:
+
+| Runtime | App UDF | Fresh UDF |
+|---|---|---|
+| Edge Beta 157.0.4341.30 | FAIL 0x8007139F | FAIL 0x8007139F |
+| Evergreen 156.0.4314.58 | OK, navigated, 7-proc tree | OK, navigated, 7-proc tree |
+
+- The fault follows the runtime, not the profile and not the boot.
+- `AMD VideoProcessorGetOutputExtension failed (0x80070057)` is logged by
+  **both** runtimes - 156 logs it and runs fine. It is noise, not the trigger;
+  this corrects the 09-27 reading that pinned the shutdown on it.
+- Beta 157 first-attempt log: healthy startup, then `Dispatcher::Shutdown()`
+  ~240 ms in, with no error line of its own. Why 157 bails is not determined.
+- Layered-window probe (`SetLayeredWindowAttributes`) passes this boot, so the
+  09-27 "composition pipeline sick" state is not present.
+- Gotcha: retries relaunch the browser and truncate a shared `--log-file`;
+  snapshot the file while it grows to keep the first attempt's log.
+- Bug: tier 1 tests `Directory.Exists(...\msedgewebview2.exe)` - a file -
+  so the shipped `WebView2Runtime` folder can never be selected.
+- Unexplained: one Beta test instance exited by itself within 7 s (no
+  Application-log events); the other Beta instances stayed up retrying.
+- Conclusion: the tier-2 "prefer Edge Beta" workaround from the 154 era has
+  gone stale; on this box evergreen 156 is the working runtime.
+- Fix (same evening): resolution is now shipped folder (check corrected to
+  `File.Exists`) → loader default (null folder). The loader's own channel
+  order covers the Beta fallback when no stable runtime is installed. The
+  resolved runtime is logged as `RUNTIME <version> folder=...` in
+  `fc-init.log`. Verified 19:50: no env overrides, `RUNTIME 156.0.4314.58
+  folder=(loader default)`, google.com navigated, 6-process tree up.
+  Revert: restore the Edge Beta lookup block in `Form1()` from `2e071dd`.
