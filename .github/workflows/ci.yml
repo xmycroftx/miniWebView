@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Old-style csproj (ToolsVersion 15.0, TargetFrameworkVersion v4.7.2) with
+      # packages.config, so this needs full MSBuild and nuget.exe -- `dotnet
+      # build` cannot handle it. Costura.Fody weaves WebView2 into the single
+      # output exe at build time, which is why the artifact is one file.
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore
+        run: nuget restore FloatCore3.sln
+
+      - name: Build (Release)
+        run: msbuild FloatCore3.sln -p:Configuration=Release -p:Platform="Any CPU" -m
+
+      - name: Verify the exe was produced
+        shell: pwsh
+        run: |
+          $exe = "FloatCore3/bin/Release/FloatCore3.exe"
+          if (-not (Test-Path $exe)) { throw "build produced no exe at $exe" }
+          $f = Get-Item $exe
+          "built: {0}  {1:N0} bytes  sha256 {2}" -f $f.Name, $f.Length, (Get-FileHash $exe).Hash
+          # Costura should have woven WebView2 in; a bare exe means the weave
+          # silently did not run.
+          if ($f.Length -lt 500KB) { throw "exe is $($f.Length) bytes - Costura weave likely did not run" }
+
+      - name: Smoke - the URL argument is actually parsed
+        shell: pwsh
+        run: |
+          # Cannot launch the GUI on a runner, but we can assert the entry point
+          # takes args at all and actually reads them.
+          $src = Get-Content FloatCore3/Program.cs -Raw
+          if ($src -notmatch 'static\s+void\s+Main\s*\(\s*string\s*\[\s*\]\s*args\s*\)') {
+            throw "Main() does not accept string[] args - it cannot receive a URL"
+          }
+          if ($src -notmatch 'args\??\.') {
+            throw "Main() never reads args - a URL argument would be ignored"
+          }
+          "entry point accepts and reads args"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FloatCore3-win-x64
+          path: FloatCore3/bin/Release/FloatCore3.exe
+          if-no-files-found: error
+
+  # pushing a v* tag publishes the exe built above as a GitHub release.
+  # notes come from .github/release-notes/<tag>.md (first line "# <title>"),
+  # falling back to generated notes. re-running against an existing release
+  # replaces the asset instead of failing
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: FloatCore3-win-x64
+          path: dist
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $exe = "dist/FloatCore3.exe"
+          gh release view $TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            "release $TAG exists - replacing asset"
+            gh release upload $TAG $exe --clobber
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            exit 0
+          }
+          $notes = ".github/release-notes/$TAG.md"
+          if (Test-Path $notes) {
+            $lines = Get-Content $notes -Encoding utf8
+            $title = $lines[0] -replace '^#\s*', ''
+            $body = "dist/notes-body.md"
+            $lines | Select-Object -Skip 1 | Set-Content $body -Encoding utf8
+            gh release create $TAG $exe --verify-tag --title $title --notes-file $body
+          } else {
+            gh release create $TAG $exe --verify-tag --title $TAG --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Verify the published asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          New-Item -ItemType Directory -Force check | Out-Null
+          gh release download $TAG --pattern FloatCore3.exe --dir check --clobber
+          if ($LASTEXITCODE -ne 0) { throw "could not download the published asset" }
+          $built = (Get-FileHash dist/FloatCore3.exe).Hash
+          $published = (Get-FileHash check/FloatCore3.exe).Hash
+          "built $built"; "published $published"
+          if ($built -ne $published) { throw "published asset does not match the build" }
