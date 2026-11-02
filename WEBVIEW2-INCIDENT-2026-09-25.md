@@ -204,3 +204,12 @@ fresh UDFs via `WEBVIEW2_USER_DATA_FOLDER`, 20 s per cell:
   `fc-init.log`. Verified 19:50: no env overrides, `RUNTIME 156.0.4314.58
   folder=(loader default)`, google.com navigated, 6-process tree up.
   Revert: restore the Edge Beta lookup block in `Form1()` from `2e071dd`.
+- Not a runtime version change: Beta 157 folder created 2026-10-30, evergreen
+  156 (the working one) 2026-11-01 13:28. Timeline: last good navigations
+  16:23-17:55 (probably `Browser\FloatCore3.exe` = the `2e071dd` build, so Beta
+  157 - inferred, no runtime was logged then); Start-menu power-off 18:32
+  (event 1074, "Other (Unplanned)"); cold boot 19:29:52; first failure 19:38.
+  No Windows servicing in that window (only a Defender definitions update
+  at 19:40, after the first failure). Like 09-27, the break crosses a boot
+  with no version change. Next test: force Beta 157 after the next reboot to
+  see whether it recovers.
