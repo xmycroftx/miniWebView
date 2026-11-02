@@ -88,22 +88,25 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           $exe = "dist/FloatCore3.exe"
-          gh release view $TAG *> $null
+          # an empty tag makes `gh release view` fall back to the latest
+          # release - refuse rather than touch the wrong one
+          if (-not $env:TAG) { throw "TAG is empty" }
+          gh release view $env:TAG *> $null
           if ($LASTEXITCODE -eq 0) {
-            "release $TAG exists - replacing asset"
-            gh release upload $TAG $exe --clobber
+            "release $env:TAG exists - replacing asset"
+            gh release upload $env:TAG $exe --clobber
             if ($LASTEXITCODE -ne 0) { exit 1 }
             exit 0
           }
-          $notes = ".github/release-notes/$TAG.md"
+          $notes = ".github/release-notes/$env:TAG.md"
           if (Test-Path $notes) {
             $lines = Get-Content $notes -Encoding utf8
             $title = $lines[0] -replace '^#\s*', ''
             $body = "dist/notes-body.md"
             $lines | Select-Object -Skip 1 | Set-Content $body -Encoding utf8
-            gh release create $TAG $exe --verify-tag --title $title --notes-file $body
+            gh release create $env:TAG $exe --verify-tag --title $title --notes-file $body
           } else {
-            gh release create $TAG $exe --verify-tag --title $TAG --generate-notes
+            gh release create $env:TAG $exe --verify-tag --title $env:TAG --generate-notes
           }
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
@@ -114,7 +117,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           New-Item -ItemType Directory -Force check | Out-Null
-          gh release download $TAG --pattern FloatCore3.exe --dir check --clobber
+          gh release download $env:TAG --pattern FloatCore3.exe --dir check --clobber
           if ($LASTEXITCODE -ne 0) { throw "could not download the published asset" }
           $built = (Get-FileHash dist/FloatCore3.exe).Hash
           $published = (Get-FileHash check/FloatCore3.exe).Hash
