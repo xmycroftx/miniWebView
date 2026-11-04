@@ -171,39 +171,114 @@ namespace FloatCore3
 
             // explicit environment, established before anything else can race
             // it (the minimal-host experiment: this exact sequence works while
-            // wrapper auto-init stalls). runtime source order:
-            //   1. WebView2Runtime folder beside the exe (shipped fixed
-            //      version - immune to evergreen folder corruption)
-            //   2. evergreen runtime, resolved by the loader (null folder).
-            //      with no stable runtime installed the loader itself falls
-            //      back to Edge Beta, then Dev, then Canary. preferring Beta
-            //      outright went stale: beta 157 self-terminates in the
-            //      hosting handshake on this box while evergreen 156 hosts
-            //      fine (see WEBVIEW2-INCIDENT, recurrence 2026-11-01)
-            // user data folder pinned beside the exe with the runtime it was
-            // created against. DirectComposition presentation also breaks on
-            // this machine's AMD stack after some boots (black boxes while
-            // the page loads behind them) - disable it on the 154 fixed
-            // folder; the 155 beta renders fine with DComp on
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string runtimeFolder = null;
-            string shipped = System.IO.Path.Combine(baseDir, "WebView2Runtime");
-            if (System.IO.File.Exists(System.IO.Path.Combine(shipped, "msedgewebview2.exe")))
+            // wrapper auto-init stalls). on this box whichever runtime is in
+            // use eventually starts self-terminating in the hosting handshake
+            // (0x8007139F) while the other installed runtimes keep working -
+            // beta 157 on 2026-11-01, the shipped 154 on 2026-11-04. so
+            // there is no single right runtime: init walks a candidate list
+            // and fails over (see webView21_CoreWebView2InitializationCompleted)
+            _runtimeCandidates = BuildRuntimeCandidates();
+            webView21.EnsureCoreWebView2Async(CreateEnvironmentForCandidate(0).GetAwaiter().GetResult());
+        }
+
+        // --- runtime failover ---
+        // a candidate is a browser folder; "" means the loader default
+        // (evergreen, whose own channel order falls back to beta/dev/canary).
+        // every environment on one user data folder must use the same browser
+        // folder or init fails with the same ERROR_INVALID_STATE, so the
+        // runtime that worked is shared process-wide (popups, standbys) and
+        // persisted for the next launch and sibling instances
+        private static string s_activeRuntime;
+        private List<string> _runtimeCandidates;
+        private int _runtimeIndex;
+
+        private static string UserDataFolder =>
+            System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FloatCore3.exe.WebView2");
+
+        private static string LastGoodRuntimeFile =>
+            System.IO.Path.Combine(UserDataFolder, "fc-last-good-runtime.txt");
+
+        private static List<string> BuildRuntimeCandidates()
+        {
+            var list = new List<string>();
+            if (s_activeRuntime != null) { list.Add(s_activeRuntime); }
+            try
             {
-                runtimeFolder = shipped;
+                if (System.IO.File.Exists(LastGoodRuntimeFile))
+                {
+                    string saved = System.IO.File.ReadAllText(LastGoodRuntimeFile).Trim();
+                    if (saved.Length == 0 || System.IO.File.Exists(System.IO.Path.Combine(saved, "msedgewebview2.exe")))
+                    {
+                        list.Add(saved);
+                    }
+                }
             }
-            var envOptions = new CoreWebView2EnvironmentOptions
+            catch { }
+            // shipped fixed version beside the exe - immune to evergreen
+            // auto-updates
+            string shipped = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2Runtime");
+            if (System.IO.File.Exists(System.IO.Path.Combine(shipped, "msedgewebview2.exe"))) { list.Add(shipped); }
+            list.Add("");
+            // newest edge beta, explicitly - the loader only picks beta when
+            // no stable runtime is installed at all
+            try
             {
-                AdditionalBrowserArguments = runtimeFolder != null && runtimeFolder.EndsWith("154.0.4258.37", StringComparison.Ordinal)
-                    ? "--disable-direct-composition"
-                    : "",
-            };
-            var envTask = CoreWebView2Environment.CreateAsync(runtimeFolder,
-                System.IO.Path.Combine(baseDir, "FloatCore3.exe.WebView2"), envOptions);
-            var env = envTask.GetAwaiter().GetResult();
+                string betaRoot = System.IO.Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86),
+                    "Microsoft", "Edge Beta", "Application");
+                if (System.IO.Directory.Exists(betaRoot))
+                {
+                    var newest = new System.IO.DirectoryInfo(betaRoot)
+                        .GetDirectories()
+                        .Where(d => System.Text.RegularExpressions.Regex.IsMatch(d.Name, @"^\d+\.\d+\.\d+\.\d+$")
+                                    && System.IO.File.Exists(System.IO.Path.Combine(d.FullName, "msedgewebview2.exe")))
+                        .OrderByDescending(d => new Version(d.Name))
+                        .FirstOrDefault();
+                    if (newest != null) { list.Add(newest.FullName); }
+                }
+            }
+            catch { }
+            return list.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static void InitLog(string line)
+        {
             try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fc-init.log"),
-                DateTime.Now.ToString("HH:mm:ss.fff") + " RUNTIME " + env.BrowserVersionString + " folder=" + (runtimeFolder ?? "(loader default)") + "\r\n"); } catch { }
-            webView21.EnsureCoreWebView2Async(env);
+                DateTime.Now.ToString("HH:mm:ss.fff") + " " + line + "\r\n"); } catch { }
+        }
+
+        // environment for candidate i (wrapping); a candidate whose
+        // environment cannot even be created is skipped
+        private async Task<CoreWebView2Environment> CreateEnvironmentForCandidate(int i)
+        {
+            Exception last = null;
+            for (int tried = 0; tried < _runtimeCandidates.Count; tried++)
+            {
+                _runtimeIndex = (i + tried) % _runtimeCandidates.Count;
+                string folder = _runtimeCandidates[_runtimeIndex];
+                try
+                {
+                    var env = await CoreWebView2Environment.CreateAsync(folder.Length == 0 ? null : folder,
+                        UserDataFolder, new CoreWebView2EnvironmentOptions()).ConfigureAwait(false);
+                    InitLog("RUNTIME " + env.BrowserVersionString + " folder=" + (folder.Length == 0 ? "(loader default)" : folder)
+                        + " candidate=" + (_runtimeIndex + 1) + "/" + _runtimeCandidates.Count);
+                    return env;
+                }
+                catch (Exception ex)
+                {
+                    last = ex;
+                    InitLog("RUNTIME SKIP folder=" + folder + ": " + ex.Message);
+                }
+            }
+            throw last ?? new InvalidOperationException("no WebView2 runtime candidates");
+        }
+
+        private void RememberGoodRuntime()
+        {
+            string folder = _runtimeCandidates[_runtimeIndex];
+            s_activeRuntime = folder;
+            try { System.IO.File.WriteAllText(LastGoodRuntimeFile, folder); } catch { }
+            InitLog("RUNTIME OK folder=" + (folder.Length == 0 ? "(loader default)" : folder));
         }
 
         private string _initialUrl;
@@ -650,7 +725,10 @@ namespace FloatCore3
                     // 100 x 3s ~ 5 minutes of self-healing: a wedged browser tree
                     // from an abnormal close can hold the user-data-folder for
                     // minutes; a blank window that recovers beats one that
-                    // stays dead
+                    // stays dead. each runtime candidate gets two attempts
+                    // (the second after killing our orphans, for the
+                    // transient case) before failing over to the next one,
+                    // round-robin
                     while (_webviewInitRetries < 100 && !IsDisposed && !Disposing)
                     {
                         _webviewInitRetries++;
@@ -658,7 +736,15 @@ namespace FloatCore3
                         if (IsDisposed || Disposing) { return; }
                         try
                         {
-                            await webView21.EnsureCoreWebView2Async();
+                            int next = (_webviewInitRetries / 2) % _runtimeCandidates.Count;
+                            if (next != _runtimeIndex)
+                            {
+                                await webView21.EnsureCoreWebView2Async(await CreateEnvironmentForCandidate(next));
+                            }
+                            else
+                            {
+                                await webView21.EnsureCoreWebView2Async();
+                            }
                             if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
                             return;
                         }
@@ -677,6 +763,7 @@ namespace FloatCore3
                     _initRetryLoopActive = false;
                     return;
                 }
+                RememberGoodRuntime();
                 if (!_customizeDone) { _customizeDone = true; Form1_CustomizeMenu(); }
                 // TEMP-DIAG
                 this.webView21.CoreWebView2.NavigationStarting += (s2, ev2) =>

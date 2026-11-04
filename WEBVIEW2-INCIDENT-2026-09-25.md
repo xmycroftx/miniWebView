@@ -213,3 +213,37 @@ fresh UDFs via `WEBVIEW2_USER_DATA_FOLDER`, 20 s per cell:
   at 19:40, after the first failure). Like 09-27, the break crosses a boot
   with no version change. Next test: force Beta 157 after the next reboot to
   see whether it recovers.
+
+## Recurrence 2026-11-04 (shipped 154 this time) and runtime failover
+
+The tier-1 fix in v0.0.12 made `Browser\WebView2Runtime` (fixed 154.0.4258.37)
+selectable, so the installed copy ran on it. It hosted fine at 00:28 and 09:49,
+then failed from 10:14 with the same `0x8007139F` - **within one boot** (up since
+2026-11-01 22:03), no reboot in between. Nothing installed between 09:49 and
+10:14; the only update was a Defender definitions update at 10:15:43, after the
+first failure (same ordering as 11-01 - coincidence so far, not a cause).
+
+Matrix at 10:16, fresh UDFs, runtime forced by env var:
+
+| Runtime | 2026-11-04 | 2026-11-01 |
+|---|---|---|
+| Shipped 154.0.4258.37 | FAIL (also with `--disable-direct-composition`) | - |
+| Evergreen 156.0.4314.58 | OK | OK |
+| Edge Beta 157 | OK (`.36`, updated 11-02, after a reboot) | FAIL (`.30`) |
+
+Pattern across episodes: the runtime in use goes bad and the others keep
+working; which one rotates. Root cause still unknown.
+
+Resilience fix: init now walks a candidate list - process-wide active runtime,
+persisted last-good (`FloatCore3.exe.WebView2\fc-last-good-runtime.txt`, empty =
+loader default), shipped folder, loader default, newest Edge Beta - two attempts
+each, round-robin, 3 s apart. The runtime that hosts is shared with popups and
+standbys (environments on one UDF must agree on the browser folder) and saved
+for the next launch and sibling instances. Verified live 10:20 with shipped 154
+broken: 154 failed twice, failed over to evergreen 156 at +6.5 s, page loaded;
+the next launch started on evergreen directly. `fc-init.log` lines:
+`RUNTIME <ver> folder=... candidate=i/n`, `RUNTIME OK`, `RUNTIME SKIP`.
+Not yet verified: a popup/standby on a failed-over process (it should inherit
+the active runtime). Removed the dead `--disable-direct-composition` branch (it
+keyed on a folder name the shipped folder never has, and the matrix shows the
+flag doesn't help anyway).
